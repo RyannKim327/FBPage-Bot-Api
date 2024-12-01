@@ -1,7 +1,7 @@
 const body = require("body-parser");
 const fs = require("fs");
-const express = require("express");
-const request = require("request");
+const express = require("express");;
+const axios = require("axios");
 
 class FacebookPage {
   constructor() {
@@ -13,6 +13,20 @@ class FacebookPage {
     this.prefix = "/";
     this.commands = [];
     this.start = true;
+    this.version = "v21.0";
+    this.fallback = null;
+    this.types = {
+      audio: "audio/mpeg",
+      image: "image/png",
+      video: "video/mp4",
+    };
+
+    if (fs.existsSync(`${__dirname}/../temp/`)) {
+      fs.rm(`${__dirname}/../temp/`, { recursive: true }, (e) => { });
+    }
+    setTimeout(() => {
+      fs.mkdirSync(`${__dirname}/../temp`);
+    }, 150);
   }
 
   // INFO: Public functions
@@ -24,27 +38,85 @@ class FacebookPage {
     if (!fs.existsSync(file)) {
       this.start = false;
       return console.error(
-        `Script [ERR]: The directory of the command is invalid or not found.`,
+        `${script} Script [ERR]: The directory of the command is invalid or not found.`,
       );
     }
     if (!command) {
       this.start = false;
       return console.error(
-        `Command [ERR]: The command must be exists or configured.`,
+        `${script} Command [ERR]: The command must be exists or configured.`,
       );
     }
     if (!command.title || !command.command) {
       this.start = false;
       return console.error(
-        `Commands [ERR]: Kindly check your command if there's a title and/or command`,
+        `${script} Command [ERR]: Kindly check your command if there's a title and/or command`,
       );
     }
     command["script"] = script;
     this.commands.push(command);
   }
 
+  setFallback(script, command) {
+    if (typeof script !== "string") {
+      this.start = false;
+      return console.error("FALLBACK [ERR]: Script must be a string [File]");
+    }
+    if (!command) {
+      this.start = false;
+      return console, error("FALLBACK [ERR]: Command must be exists");
+    }
+    if (typeof command !== "object") {
+      this.start = false;
+      return console.error(`FALLBACK [ERR]: The command must be an Object`);
+    }
+    if (!command.title) {
+      this.start = false;
+      return console.error(`FALLBACK [ERR]: Title must be existed`);
+    }
+    command["script"] = script;
+    this.fallback = command;
+  }
+
   setPrefix(prefix) {
     this.prefix = prefix;
+  }
+
+  sendAttachment(type, fileUrl, event, callback) {
+    if (!this.FB_TOKEN) {
+      return console.error(`TOKEN [ERR]: Undefined FB_TOKEN`);
+    }
+    if (typeof event !== "object") {
+      return console.error(
+        "ERROR [event type]: The event must be in Object or JSON type",
+      );
+    }
+
+    axios.post(`https://graph.facebook.com/${this.version}/me/messages?access_token=${this.FB_TOKEN}`, {
+      recipient: {
+        id: event.sender.id
+      },
+      message: {
+        attachment: {
+          type: type,
+          payload: {
+            url: fileUrl
+          }
+        }
+      }
+    }).then(response => {
+      if (callback) {
+        if (typeof callback === "function") {
+          callback(false, response);
+        }
+      }
+    }).catch(error => {
+      if (callback) {
+        if (typeof callback === "function") {
+          callback(true, error);
+        }
+      }
+    })
   }
 
   sendMessage(message, event, callback) {
@@ -62,32 +134,31 @@ class FacebookPage {
     if (typeof message === "string") {
       msg = { text: message };
     }
-    request(
-      {
-        url: "https://graph.facebook.com/v13.0/me/messages",
-        qs: { access_token: this.FB_TOKEN },
-        method: "POST",
-        json: {
-          recipient: { id: event.sender.id },
+
+    axios
+      .post(
+        `https://graph.facebook.com/${this.version}/me/messages?access_token=${this.FB_TOKEN}`,
+        {
           message: msg,
+          recipient: {
+            id: event.sender.id,
+          },
         },
-      },
-      (error, response, body) => {
-        if (error) {
-          console.error("Error sending message:", error);
-        } else if (response.body.error) {
-          console.error("Error response:", response.body.error);
-        } else {
-          console.log("Message sent successfully:", body);
-          if (callback) {
-            if (typeof callback === "function") {
-              callback();
-            }
+      )
+      .then((response) => {
+        if (callback) {
+          if (typeof callback === "function") {
+            callback(false, response);
           }
         }
-        console.log("Sent");
-      },
-    );
+      })
+      .catch((error) => {
+        if (callback) {
+          if (typeof callback === "function") {
+            callback(true, error);
+          }
+        }
+      });
   }
 
   // INFO: Private Functions
@@ -112,13 +183,12 @@ class FacebookPage {
       if (prefixes.includes(prefix)) {
         prefix = `\\${prefix}`;
       }
-      console.log(prefix);
+
       return new RegExp(`${prefix}${command}`, "i");
     }
   }
 
   #processhandler(event) {
-    console.log(event);
     let done = false;
     const commands = this.commands;
     let c = 0;
@@ -129,16 +199,20 @@ class FacebookPage {
         const script = require(`./../src/${command.script}`);
         done = true;
         script(this, event, _regex);
-      } else if (!done) {
+      } else if (!done && c < commands.length - 1) {
         c++;
         execute();
       }
     };
     execute();
+    if (this.fallback !== null && typeof this.fallback === "object" && !done) {
+      const script = require(`./../src/${this.fallback.script}`);
+      script(this, event, this.prefix);
+    }
   }
 
   // INFO: Webhook process
-  webhookListener(actions) {
+  webhookListener() {
     this.start = true && this.commands.length > 0;
 
     if (!this.start) {
@@ -146,9 +220,6 @@ class FacebookPage {
         `The're a problem with your configuration. Kindly check it first`,
       );
     }
-
-    // if (typeof actions !== "function")
-    //   return console.error(`Action type [ERROR]: Actions must be function.`);
 
     const app = this.app;
     app.get("/", (req, res) => {
@@ -175,7 +246,6 @@ class FacebookPage {
           entry.messaging.forEach((event) => {
             if (event.message) {
               if (event.message.text.startsWith(this.prefix)) {
-                // actions(event);
                 this.#processhandler(event);
               }
             } else {

@@ -1,3 +1,5 @@
+// NOTE: This is just an example of the index.js
+
 const bot = require("./fb-bot/index");
 
 const api = new bot();
@@ -8,9 +10,9 @@ api.setPrefix("/");
 // INFO: Sample adding a command
 // Use regex for command pattern
 // scripts must be saved in src folder
-api.addCommand("test", {
-  title: "Test Command",
-  command: "test ([\\w]+)",
+api.addCommand("music", {
+  title: "Music Command",
+  command: "music ([\\w\\W]+)",
 });
 
 // INFO: To start action and webhooks
