@@ -4,7 +4,18 @@
 ---
 ## Introduction
 
-> Documentation soon
+> A simple program for easier migration and less configuration in facebook page messenger api (official)
+
+---
+### How to start
+
+> Note that you need to host your facebook bot for you to use it and debug it. You may use `Vercel`, `Netlify`, or `Render`
+
+1. Install all the required dependencies which are: `express`, `body-parser`, `axios`, and `fs`.
+2. Get your token key using this [documentation](https://github.com/muhammadoren/Ai-Page-Bot/blob/main/README.md)
+3. Create a envonment variable named `FB_TOKEN` with the token you've got from step 2.
+4. Saved all your commands in `src` folder.
+5. Start the Program
 
 ---
 ### Credits
