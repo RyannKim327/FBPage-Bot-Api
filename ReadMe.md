@@ -2,9 +2,15 @@
 #### MPOP Reverse II
 
 ---
-## Introduction
+### Introduction
 
 > A simple program for easier migration and less configuration in facebook page messenger api (official)
+
+---
+### Default Folders
+
+1. assets - This folder is to save all your media files you want to upload. This wold be the folder where meta fetch it.
+2. temp - This folder would save the temporary files which will be deleted after.
 
 ---
 ### How to start

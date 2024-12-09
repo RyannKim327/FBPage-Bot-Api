@@ -1,14 +1,21 @@
 const body = require("body-parser");
 const fs = require("fs");
-const express = require("express");;
+const express = require("express");
 const axios = require("axios");
+const path = require("path");
+const os = require("os");
 
 class FacebookPage {
   constructor() {
     this.FB_TOKEN = process.env.FB_TOKEN;
     this.KEY_TOKEN = process.env.KEY_TOKEN || "pagebot";
-    this.app = express();
-    this.app.use(body.json());
+    this.__app = express();
+    this.__app.use(body.json());
+    this.__app.use(
+      "/assets",
+      express.static(path.join(__dirname, "../assets")),
+    );
+    this.__app.use("/temp", express.static(path.join(__dirname, "../temp")));
     this.__port = process.env.PORT || 3000;
     this.prefix = "/";
     this.commands = [];
@@ -20,10 +27,12 @@ class FacebookPage {
       image: "image/png",
       video: "video/mp4",
     };
+    this.admin = [];
 
     if (fs.existsSync(`${__dirname}/../temp/`)) {
-      fs.rm(`${__dirname}/../temp/`, { recursive: true }, (e) => { });
+      fs.rm(`${__dirname}/../temp/`, { recursive: true }, (e) => {});
     }
+
     setTimeout(() => {
       fs.mkdirSync(`${__dirname}/../temp`);
     }, 150);
@@ -82,46 +91,78 @@ class FacebookPage {
     this.prefix = prefix;
   }
 
-  sendAttachment(type, fileUrl, event, callback) {
+  sendAttachment(fileType, fileUrl, event, callback) {
     if (!this.FB_TOKEN) {
       return console.error(`TOKEN [ERR]: Undefined FB_TOKEN`);
     }
+
     if (typeof event !== "object") {
       return console.error(
         "ERROR [event type]: The event must be in Object or JSON type",
       );
     }
 
-    axios.post(`https://graph.facebook.com/${this.version}/me/messages?access_token=${this.FB_TOKEN}`, {
+    let data = {
       recipient: {
-        id: event.sender.id
+        id: event.sender.id,
       },
       message: {
         attachment: {
-          type: type,
+          type: fileType,
           payload: {
-            url: fileUrl
+            is_reusable: true,
+          },
+        },
+      },
+    };
+
+    let url = "messages";
+    if (!fileUrl.startsWith("http")) {
+      if (!fileUrl.startsWith("/")) {
+        fileUrl = `/${fileUrl}`;
+      }
+
+      // url = "message_attachments";
+      if (!fs.existsSync(fileUrl.substring())) {
+        return this.sendMessage("File doesn't exists", event);
+      }
+
+      let file = fileUrl.split("assets/")[1];
+      let folder = "assets";
+      if (fileUrl.includes("temp") && !fileUrl.includes("assets")) {
+        file = fileUrl.split("temp/")[1];
+        folder = "temp";
+      }
+
+      data.message.attachment.payload.url = `https://${this.hostname}/${folder}/${file}`;
+    } else {
+      data.message.attachment.payload.url = fileUrl;
+    }
+
+    axios
+      .post(
+        `https://graph.facebook.com/${this.version}/me/${url}?access_token=${this.FB_TOKEN}`,
+        data,
+      )
+      .then((response) => {
+        if (callback) {
+          if (typeof callback === "function") {
+            callback(false, response);
           }
         }
-      }
-    }).then(response => {
-      if (callback) {
-        if (typeof callback === "function") {
-          callback(false, response);
+      })
+      .catch((error) => {
+        if (callback) {
+          if (typeof callback === "function") {
+            callback(true, error);
+          }
         }
-      }
-    }).catch(error => {
-      if (callback) {
-        if (typeof callback === "function") {
-          callback(true, error);
-        }
-      }
-    })
+      });
   }
 
   sendMessage(message, event, callback) {
     if (!this.FB_TOKEN) {
-      return console.error(`TOKEN [ERR]: Undefined FB_TOKEN`);
+      return console.error(`TOKEN[ERR]: Undefined FB_TOKEN`);
     }
     if (typeof event !== "object") {
       return console.error(
@@ -212,18 +253,21 @@ class FacebookPage {
   }
 
   // INFO: Webhook process
-  webhookListener() {
-    this.start = true && this.commands.length > 0;
-
+  listen() {
+    if (this.start) {
+      this.start = true && this.commands.length > 0;
+    }
     if (!this.start) {
       return console.error(
         `The're a problem with your configuration. Kindly check it first`,
       );
     }
 
-    const app = this.app;
+    const app = this.__app;
     app.get("/", (req, res) => {
-      res.send("The main webpage was started.");
+      res.send(
+        "The main webpage was started. Please verify your token by calling it with a webhook on facebook developer's page",
+      );
     });
 
     app.get("/webhook", (req, res) => {
@@ -241,6 +285,7 @@ class FacebookPage {
 
     app.post("/webhook", (req, res) => {
       const body = req.body;
+      this.hostname = req.hostname;
       if (body.object === "page") {
         body.entry.forEach((entry) => {
           entry.messaging.forEach((event) => {
@@ -257,7 +302,7 @@ class FacebookPage {
       }
     });
 
-    this.app.listen(this.__port, () => {
+    app.listen(this.__port, () => {
       console.log("The service is now started");
     });
   }
