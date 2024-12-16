@@ -259,7 +259,7 @@ class FacebookPage {
     }
     if (!this.start) {
       return console.error(
-        `The're a problem with your configuration. Kindly check it first`,
+        `There's a problem with your configuration. Kindly check it first`,
       );
     }
 
