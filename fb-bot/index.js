@@ -1,16 +1,17 @@
-const body = require("body-parser");
 const fs = require("fs");
 const express = require("express");
 const axios = require("axios");
 const path = require("path");
-const os = require("os");
+const bodyParser = require("body-parser");
 
 class FacebookPage {
   constructor() {
     this.FB_TOKEN = process.env.FB_TOKEN;
     this.KEY_TOKEN = process.env.KEY_TOKEN || "pagebot";
+    this.webhook = "/webhook";
     this.__app = express();
-    this.__app.use(body.json());
+    this.__app.use(bodyParser.json());
+    this.__app.use(express.json());
     this.__app.use(
       "/assets",
       express.static(path.join(__dirname, "../assets")),
@@ -20,7 +21,7 @@ class FacebookPage {
     this.prefix = "/";
     this.commands = [];
     this.start = true;
-    this.version = "v21.0";
+    this.version = "v23.0";
     this.fallback = null;
     this.types = {
       audio: "audio/mpeg",
@@ -66,6 +67,7 @@ class FacebookPage {
     this.commands.push(command);
   }
 
+  // TODO: To create a catch if there is no command to be executed
   setFallback(script, command) {
     if (typeof script !== "string") {
       this.start = false;
@@ -91,6 +93,13 @@ class FacebookPage {
     this.prefix = prefix;
   }
 
+  setWebhook(webhook) {
+    if (!webhook.startsWith("/")) {
+      webhook = `/${webhook}`;
+    }
+    this.webhook;
+  }
+
   sendAttachment(fileType, fileUrl, event, callback) {
     if (!this.FB_TOKEN) {
       return console.error(`TOKEN [ERR]: Undefined FB_TOKEN`);
@@ -110,6 +119,7 @@ class FacebookPage {
         attachment: {
           type: fileType,
           payload: {
+            url: fileUrl,
             is_reusable: true,
           },
         },
@@ -117,6 +127,10 @@ class FacebookPage {
     };
 
     let url = "messages";
+
+    if (!fileUrl) {
+      return this.sendMessage("Undefined File URL");
+    }
     if (!fileUrl.startsWith("http")) {
       if (!fileUrl.startsWith("/")) {
         fileUrl = `/${fileUrl}`;
@@ -135,14 +149,18 @@ class FacebookPage {
       }
 
       data.message.attachment.payload.url = `https://${this.hostname}/${folder}/${file}`;
-    } else {
-      data.message.attachment.payload.url = fileUrl;
     }
 
     axios
       .post(
         `https://graph.facebook.com/${this.version}/me/${url}?access_token=${this.FB_TOKEN}`,
         data,
+        {
+          headers: {
+            Authorization: `Bearer ${this.FB_TOKEN}`,
+            "Content-Type": "application/json",
+          },
+        },
       )
       .then((response) => {
         if (callback) {
@@ -171,35 +189,63 @@ class FacebookPage {
     }
 
     let msg = message;
-
-    if (typeof message === "string") {
-      msg = { text: message };
+    if (typeof message === "object") {
+      if (message.text) {
+        msg = message.text;
+      }
     }
 
-    axios
-      .post(
-        `https://graph.facebook.com/${this.version}/me/messages?access_token=${this.FB_TOKEN}`,
-        {
-          message: msg,
-          recipient: {
-            id: event.sender.id,
+    const sendMsg = (str) => {
+      axios
+        .post(
+          `https://graph.facebook.com/${this.version}/me/messages?access_token=${this.FB_TOKEN}`,
+          {
+            message: { text: str },
+            recipient: {
+              id: event.sender.id,
+            },
           },
-        },
-      )
-      .then((response) => {
-        if (callback) {
-          if (typeof callback === "function") {
-            callback(false, response);
+        )
+        .then((response) => {
+          if (callback) {
+            if (typeof callback === "function") {
+              callback(false, response);
+            }
           }
-        }
-      })
-      .catch((error) => {
-        if (callback) {
-          if (typeof callback === "function") {
-            callback(true, error);
+        })
+        .catch((error) => {
+          if (callback) {
+            if (typeof callback === "function") {
+              callback(true, error);
+            }
           }
+        });
+    };
+
+    if (typeof msg !== "string") {
+      return console.error(
+        `Send Message [ERR]: Message must be in string format`,
+      );
+    }
+
+    let msgs = msg.split(" ");
+    if (msgs.length >= 300) {
+      const words = 250;
+      let m = 0;
+      const x = () => {
+        if (m < Math.ceil(msgs.length / words)) {
+          const msg_ = msgs.slice(m * words, (m + 1) * words);
+          sendMsg(msg_.join(" "));
+          m++;
+          setTimeout(() => {
+            x();
+          }, 1500);
         }
-      });
+      };
+      x();
+    } else {
+      sendMsg(msg);
+    }
   }
 
   // INFO: Private Functions
@@ -212,21 +258,60 @@ class FacebookPage {
     );
   }
 
-  #regex(command) {
+  #regex(command, unpref) {
     if (typeof command !== "string") {
       if (command.command) {
         command = command.command;
       }
     }
     if (typeof command === "string") {
+      if (unpref) {
+        return new RegExp(`^${command}`, "i");
+      }
+
       let prefix = this.prefix;
       const prefixes = ["/", "\\", "$", "^"];
       if (prefixes.includes(prefix)) {
         prefix = `\\${prefix}`;
       }
 
-      return new RegExp(`${prefix}${command}`, "i");
+      return new RegExp(`^${prefix}${command}`, "i");
     }
+  }
+
+  #help(event) {
+    this.commands.sort((a, b) => {
+      const _a = JSON.stringify(Object.values(a).sort());
+      const _b = JSON.stringify(Object.values(b).sort());
+      if (_a < _b) return -1;
+      if (_a > _b) return 1;
+      return 0;
+    });
+    let message = `Hello, I am the automated service of MPOP Reverse II named AI Haibara. I'm using the prefix: "${this.prefix}" Without quotation mark.\n\n Here are my commands and services, so feel free to use if needed.\n\n`;
+    let i = 1;
+    for (let c of this.commands) {
+      if (c.title && c.command && !c.hidden) {
+        let command = c.command.replace(/\([^)]*\)/gi, "[args]");
+        let maintenance = "";
+        if (c.maintenance) {
+          maintenance = "[Under Maintenance]";
+        }
+        let msg = `${i}. Command name: ${c.title}\nCommand: "${this.prefix}${command}" ${maintenance}`;
+        if (c.description) {
+          msg += `\n  ~ ${c.description}`;
+        } else {
+          msg += "\n  ~ No description provided";
+        }
+        message += `${msg}\n\n`;
+        i++;
+      }
+    }
+    if (this.fallback) {
+      if (this.fallback.title) {
+        message += `If the command didn't exists, or not match, there's something what we call a fallback where it is called as ${this.fallback.title}`;
+      }
+    }
+    this.sendMessage(message, event);
   }
 
   #processhandler(event) {
@@ -235,7 +320,10 @@ class FacebookPage {
     let c = 0;
     const execute = () => {
       let command = commands[c];
-      const _regex = this.#regex(command.command);
+      let unpref = command.unprefix;
+      console.log(command);
+      console.log(unpref);
+      const _regex = this.#regex(command.command, unpref);
       if (_regex.test(event.message.text) && !done) {
         const script = require(`./../src/${command.script}`);
         done = true;
@@ -245,10 +333,23 @@ class FacebookPage {
         execute();
       }
     };
-    execute();
-    if (this.fallback !== null && typeof this.fallback === "object" && !done) {
-      const script = require(`./../src/${this.fallback.script}`);
-      script(this, event, this.prefix);
+
+    const regex = this.#regex("help");
+    if (regex.test(event.message.text)) {
+      this.#help(event);
+      done = true;
+    } else {
+      execute();
+
+      if (
+        event.message.text.startsWith(this.prefix) &&
+        this.fallback !== null &&
+        typeof this.fallback === "object" &&
+        !done
+      ) {
+        const script = require(`./../src/${this.fallback.script}`);
+        script(this, event, this.prefix);
+      }
     }
   }
 
@@ -259,18 +360,20 @@ class FacebookPage {
     }
     if (!this.start) {
       return console.error(
-        `There's a problem with your configuration. Kindly check it first`,
+        `The're a problem with your configuration. Kindly check it first`,
       );
     }
 
     const app = this.__app;
     app.get("/", (req, res) => {
+      this.hostname = req.hostname;
       res.send(
         "The main webpage was started. Please verify your token by calling it with a webhook on facebook developer's page",
       );
     });
 
-    app.get("/webhook", (req, res) => {
+    app.get(this.webhook, (req, res) => {
+      this.hostname = req.hostname;
       const mode = req.query["hub.mode"];
       const token = req.query["hub.verify_token"];
       const challenge = req.query["hub.challenge"];
@@ -283,18 +386,20 @@ class FacebookPage {
       }
     });
 
-    app.post("/webhook", (req, res) => {
+    app.post(this.webhook, (req, res) => {
       const body = req.body;
       this.hostname = req.hostname;
       if (body.object === "page") {
         body.entry.forEach((entry) => {
           entry.messaging.forEach((event) => {
             if (event.message) {
-              if (event.message.text.startsWith(this.prefix)) {
+              if (event.message.text) {
+                // if (event.message.text.startsWith(this.prefix)) {
                 this.#processhandler(event);
+                // }
               }
             } else {
-              this.#postback(event);
+              // this.#postback(event);
             }
           });
         });
