@@ -16,7 +16,7 @@ api.addCommand("music", {
 });
 
 // INFO: To start action and webhooks
-api.webhookListener();
+api.listen();
 
 // INFO: Sample sending a text
 // Event was saved into your command. Check the src/test.js
