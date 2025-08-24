@@ -8,15 +8,20 @@ class FacebookPage {
   constructor() {
     this.FB_TOKEN = process.env.FB_TOKEN;
     this.KEY_TOKEN = process.env.KEY_TOKEN || "pagebot";
-    this.webhook = "/webhook";
+    this.__webhook = "/webhook";
+    this.__assets = "/assets";
+    this.__temp = "/temp";
     this.__app = express();
     this.__app.use(bodyParser.json());
     this.__app.use(express.json());
     this.__app.use(
-      "/assets",
-      express.static(path.join(__dirname, "../assets")),
+      this.__assets,
+      express.static(path.join(__dirname, `..${this.__assets}`)),
     );
-    this.__app.use("/temp", express.static(path.join(__dirname, "../temp")));
+    this.__app.use(
+      this.__temp,
+      express.static(path.join(__dirname, `..${this.__temp}`)),
+    );
     this.__port = process.env.PORT || 3000;
     this.prefix = "/";
     this.commands = [];
@@ -28,18 +33,23 @@ class FacebookPage {
       image: "image/png",
       video: "video/mp4",
     };
-    this.admin = [];
+    this.__admins = [];
 
-    if (fs.existsSync(`${__dirname}/../temp/`)) {
-      fs.rm(`${__dirname}/../temp/`, { recursive: true }, (e) => {});
+    if (fs.existsSync(`${__dirname}/..${this.__temp}/`)) {
+      fs.rm(`${__dirname}/..${this.__temp}/`, { recursive: true }, (e) => {});
     }
 
     setTimeout(() => {
-      fs.mkdirSync(`${__dirname}/../temp`);
+      fs.mkdirSync(`${__dirname}/..${this.__temp}`);
     }, 150);
   }
 
   // INFO: Public functions
+
+  addAdmin(adminID) {
+    this.__admins.push(adminID);
+  }
+
   addCommand(script, command) {
     let file = `${process.cwd()}/src/${script}`;
     if (!script.endsWith(".js")) {
@@ -97,7 +107,21 @@ class FacebookPage {
     if (!webhook.startsWith("/")) {
       webhook = `/${webhook}`;
     }
-    this.webhook;
+    this.__webhook = webhook;
+  }
+
+  setAssetsFolder(assets) {
+    if (!assets.startsWith("/")) {
+      assets = `/${assets}`;
+    }
+    this.__assets = assets;
+  }
+
+  setTemporaryFolder(temp) {
+    if (!temp.startsWith("/")) {
+      temp = `/${temp}`;
+    }
+    this.__temp = temp;
   }
 
   sendAttachment(fileType, fileUrl, event, callback) {
@@ -132,19 +156,22 @@ class FacebookPage {
       return this.sendMessage("Undefined File URL");
     }
     if (!fileUrl.startsWith("http")) {
+      // TODO: Trigger the condition for local storage such as temp and assets
       if (!fileUrl.startsWith("/")) {
         fileUrl = `/${fileUrl}`;
       }
 
-      // url = "message_attachments";
       if (!fs.existsSync(fileUrl.substring())) {
         return this.sendMessage("File doesn't exists", event);
       }
 
-      let file = fileUrl.split("assets/")[1];
-      let folder = "assets";
-      if (fileUrl.includes("temp") && !fileUrl.includes("assets")) {
-        file = fileUrl.split("temp/")[1];
+      let file = fileUrl.split(`${this.__assets.substring(1)}/`)[1];
+      let folder = this.__assets.substring(1);
+      if (
+        fileUrl.includes(this.__temp) &&
+        !fileUrl.includes(this.__assets.substring(1))
+      ) {
+        file = fileUrl.split(`${this.__temp.substring(1)}/`)[1];
         folder = "temp";
       }
 
@@ -179,9 +206,12 @@ class FacebookPage {
   }
 
   sendMessage(message, event, callback) {
+    // TODO: Verify FB TOKEN existence
     if (!this.FB_TOKEN) {
       return console.error(`TOKEN[ERR]: Undefined FB_TOKEN`);
     }
+
+    // TODO: Verify if the event is an object/JSON
     if (typeof event !== "object") {
       return console.error(
         "ERROR [event type]: The event must be in Object or JSON type",
@@ -248,6 +278,74 @@ class FacebookPage {
     }
   }
 
+  sendToAdmin(message, callback) {
+    // TODO: Verify FB TOKEN existence
+    if (!this.FB_TOKEN) {
+      return console.error(`TOKEN[ERR]: Undefined FB_TOKEN`);
+    }
+
+    let msg = message;
+    if (typeof message === "object") {
+      if (message.text) {
+        msg = message.text;
+      }
+    }
+
+    const sendMsg = (str) => {
+      for (let admin of this.__admins) {
+        axios
+          .post(
+            `https://graph.facebook.com/${this.version}/me/messages?access_token=${this.FB_TOKEN}`,
+            {
+              message: { text: str },
+              recipient: {
+                id: admin,
+              },
+            },
+          )
+          .then((response) => {
+            if (callback) {
+              if (typeof callback === "function") {
+                callback(false, response);
+              }
+            }
+          })
+          .catch((error) => {
+            if (callback) {
+              if (typeof callback === "function") {
+                callback(true, error);
+              }
+            }
+          });
+      }
+    };
+
+    if (typeof msg !== "string") {
+      return console.error(
+        `Send Message [ERR]: Message must be in string format`,
+      );
+    }
+
+    let msgs = msg.split(" ");
+    if (msgs.length >= 300) {
+      const words = 300;
+      let m = 0;
+      const x = () => {
+        if (m < Math.ceil(msgs.length / words)) {
+          const msg_ = msgs.slice(m * words, (m + 1) * words);
+          sendMsg(msg_.join(" "));
+          m++;
+          setTimeout(() => {
+            x();
+          }, 1500);
+        }
+      };
+      x();
+    } else {
+      sendMsg(msg);
+    }
+  }
+
   // INFO: Private Functions
   #postback(event) {
     const payload = event.postback.payload;
@@ -259,6 +357,7 @@ class FacebookPage {
   }
 
   #regex(command, unpref) {
+    // TODO: To convert normal text into regex file
     if (typeof command !== "string") {
       if (command.command) {
         command = command.command;
@@ -280,6 +379,7 @@ class FacebookPage {
   }
 
   #help(event) {
+    // TODO: A built-in command that triggers once the help command executed
     this.commands.sort((a, b) => {
       const _a = JSON.stringify(Object.values(a).sort());
       const _b = JSON.stringify(Object.values(b).sort());
@@ -321,8 +421,6 @@ class FacebookPage {
     const execute = () => {
       let command = commands[c];
       let unpref = command.unprefix;
-      console.log(command);
-      console.log(unpref);
       const _regex = this.#regex(command.command, unpref);
       if (_regex.test(event.message.text) && !done) {
         const script = require(`./../src/${command.script}`);
@@ -367,12 +465,12 @@ class FacebookPage {
     const app = this.__app;
     app.get("/", (req, res) => {
       this.hostname = req.hostname;
-      res.send(
-        "The main webpage was started. Please verify your token by calling it with a webhook on facebook developer's page",
-      );
+      res.sendFile(`${__dirname}/web/index.html`);
     });
 
-    app.get(this.webhook, (req, res) => {
+    app.get(this.__webhook, (req, res) => {
+      // TODO: To call this webhook, please go to https://developers.facebook.com/apps/your_app_id/messenger/messenger_api_settings/
+      // Please note that you also read their terms and conditions to prevent failures
       this.hostname = req.hostname;
       const mode = req.query["hub.mode"];
       const token = req.query["hub.verify_token"];
@@ -386,7 +484,7 @@ class FacebookPage {
       }
     });
 
-    app.post(this.webhook, (req, res) => {
+    app.post(this.__webhook, (req, res) => {
       const body = req.body;
       this.hostname = req.hostname;
       if (body.object === "page") {
