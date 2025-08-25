@@ -2,7 +2,6 @@ const fs = require("fs");
 const express = require("express");
 const axios = require("axios");
 const path = require("path");
-const bodyParser = require("body-parser");
 
 class FacebookPage {
   constructor() {
@@ -11,8 +10,8 @@ class FacebookPage {
     this.__webhook = "/webhook";
     this.__assets = "/assets";
     this.__temp = "/temp";
+    this.__assistant = "AI Haibara";
     this.__app = express();
-    this.__app.use(bodyParser.json());
     this.__app.use(express.json());
     this.__app.use(
       this.__assets,
@@ -36,7 +35,7 @@ class FacebookPage {
     this.__admins = [];
 
     if (fs.existsSync(`${__dirname}/..${this.__temp}/`)) {
-      fs.rm(`${__dirname}/..${this.__temp}/`, { recursive: true }, (e) => {});
+      fs.rm(`${__dirname}/..${this.__temp}/`, { recursive: true }, (e) => { });
     }
 
     setTimeout(() => {
@@ -45,7 +44,6 @@ class FacebookPage {
   }
 
   // INFO: Public functions
-
   addAdmin(adminID) {
     this.__admins.push(adminID);
   }
@@ -75,6 +73,15 @@ class FacebookPage {
     }
     command["script"] = script;
     this.commands.push(command);
+  }
+
+  getAssistant() {
+    // TODO: To extract the name of the Bot from the main source to the other call files
+    return this.__assistant;
+  }
+
+  setAssistant(name) {
+    this.__assistant = name;
   }
 
   // TODO: To create a catch if there is no command to be executed
@@ -387,7 +394,7 @@ class FacebookPage {
       if (_a > _b) return 1;
       return 0;
     });
-    let message = `Hello, I am the automated service of MPOP Reverse II named AI Haibara. I'm using the prefix: "${this.prefix}" Without quotation mark.\n\n Here are my commands and services, so feel free to use if needed.\n\n`;
+    let message = `Hello, I am the automated service of MPOP Reverse II named ${this.__assistant}. I'm using the prefix: "${this.prefix}" Without quotation mark.\n\n Here are my commands and services, so feel free to use if needed.\n\n`;
     let i = 1;
     for (let c of this.commands) {
       if (c.title && c.command && !c.hidden) {
@@ -481,6 +488,8 @@ class FacebookPage {
         } else {
           res.status(403);
         }
+      } else {
+        res.status(403);
       }
     });
 
@@ -502,11 +511,13 @@ class FacebookPage {
           });
         });
         res.status(200).send("EVENT_RECEIVED");
+      } else {
+        res.status(403);
       }
     });
 
     app.listen(this.__port, () => {
-      console.log("The service is now started");
+      console.log(`The service is now started with port: ${this.__port}`);
     });
   }
 }
