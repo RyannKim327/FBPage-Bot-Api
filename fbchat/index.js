@@ -1,3 +1,15 @@
+/*
+ * INFO:
+ * Programmer: Ryann Kim Sesgundo [MPOP Reverse II]
+ * 
+ * INFO: Purpose
+ * This file is the core of all process within the project.
+ * It was designed to OOP to control and manage a single data
+ * to prevent multiple calls if ever that there's changes
+ * within the information of the project. This was also
+ * used to clean up something and to practice propper OOP format.
+*/
+
 const fs = require("fs");
 const express = require("express");
 const axios = require("axios");
@@ -34,6 +46,7 @@ class FacebookPage {
     };
     this.__admins = [];
 
+    // TODO: To auto clear the temporary files for unexpected close
     if (fs.existsSync(`${__dirname}/..${this.__temp}/`)) {
       fs.rm(`${__dirname}/..${this.__temp}/`, { recursive: true }, (e) => { });
     }
@@ -73,6 +86,13 @@ class FacebookPage {
     }
     command["script"] = script;
     this.commands.push(command);
+  }
+
+  addPublicFolder(folder) {
+    this.__app.use(
+      `/${folder}`,
+      express.static(path.join(__dirname, `../${folder}`)),
+    );
   }
 
   getAssistant() {
@@ -133,10 +153,16 @@ class FacebookPage {
 
   sendAttachment(fileType, fileUrl, event, callback) {
     if (!this.FB_TOKEN) {
+      if (typeof callback === "function") {
+        return callback("ERR: Undefined FB_TOKEN", null);
+      }
       return console.error(`TOKEN [ERR]: Undefined FB_TOKEN`);
     }
 
     if (typeof event !== "object") {
+      if (typeof callback === "function") {
+        return callback("ERR: The event muyst be an Object or JSON type", null);
+      }
       return console.error(
         "ERROR [event type]: The event must be in Object or JSON type",
       );
@@ -160,7 +186,10 @@ class FacebookPage {
     let url = "messages";
 
     if (!fileUrl) {
-      return this.sendMessage("Undefined File URL");
+      if (typeof callback === "function") {
+        return callback("ERR: Undefined File URL", null);
+      }
+      return this.#sendMessage("Undefined File URL", event);
     }
     if (!fileUrl.startsWith("http")) {
       // TODO: Trigger the condition for local storage such as temp and assets
@@ -168,12 +197,16 @@ class FacebookPage {
         fileUrl = `/${fileUrl}`;
       }
 
-      if (!fs.existsSync(fileUrl.substring())) {
+      if (!fs.existsSync(fileUrl)) {
+        if (typeof callback === "function") {
+          return callback("ERR: File doesn't exists", null);
+        }
         return this.sendMessage("File doesn't exists", event);
       }
 
       let file = fileUrl.split(`${this.__assets.substring(1)}/`)[1];
       let folder = this.__assets.substring(1);
+
       if (
         fileUrl.includes(this.__temp) &&
         !fileUrl.includes(this.__assets.substring(1))
@@ -199,14 +232,14 @@ class FacebookPage {
       .then((response) => {
         if (callback) {
           if (typeof callback === "function") {
-            callback(false, response);
+            callback(null, response);
           }
         }
       })
       .catch((error) => {
         if (callback) {
           if (typeof callback === "function") {
-            callback(true, error);
+            callback(error, null);
           }
         }
       });
@@ -215,13 +248,19 @@ class FacebookPage {
   sendMessage(message, event, callback) {
     // TODO: Verify FB TOKEN existence
     if (!this.FB_TOKEN) {
+      if (typeof callback === "function") {
+        return callback("ERR: Undefined FB_TOKEN", null);
+      }
       return console.error(`TOKEN[ERR]: Undefined FB_TOKEN`);
     }
 
     // TODO: Verify if the event is an object/JSON
     if (typeof event !== "object") {
+      if (typeof callback === "function") {
+        return callback("ERR: The event must be an Object or JSON type", null);
+      }
       return console.error(
-        "ERROR [event type]: The event must be in Object or JSON type",
+        "ERROR [event type]: The event must be an Object or JSON type",
       );
     }
 
@@ -232,34 +271,10 @@ class FacebookPage {
       }
     }
 
-    const sendMsg = (str) => {
-      axios
-        .post(
-          `https://graph.facebook.com/${this.version}/me/messages?access_token=${this.FB_TOKEN}`,
-          {
-            message: { text: str },
-            recipient: {
-              id: event.sender.id,
-            },
-          },
-        )
-        .then((response) => {
-          if (callback) {
-            if (typeof callback === "function") {
-              callback(false, response);
-            }
-          }
-        })
-        .catch((error) => {
-          if (callback) {
-            if (typeof callback === "function") {
-              callback(true, error);
-            }
-          }
-        });
-    };
-
     if (typeof msg !== "string") {
+      if (typeof callback === "function") {
+        return callback("ERR: Text must be string", null);
+      }
       return console.error(
         `Send Message [ERR]: Message must be in string format`,
       );
@@ -272,7 +287,7 @@ class FacebookPage {
       const x = () => {
         if (m < Math.ceil(msgs.length / words)) {
           const msg_ = msgs.slice(m * words, (m + 1) * words);
-          sendMsg(msg_.join(" "));
+          this.#sendMessage(msg_.join(" "), event, callback);
           m++;
           setTimeout(() => {
             x();
@@ -281,14 +296,17 @@ class FacebookPage {
       };
       x();
     } else {
-      sendMsg(msg);
+      this.#sendMessage(msg, event, callback);
     }
   }
 
   sendToAdmin(message, callback) {
     // TODO: Verify FB TOKEN existence
     if (!this.FB_TOKEN) {
-      return console.error(`TOKEN[ERR]: Undefined FB_TOKEN`);
+      if (typeof callback === "function") {
+        return callback("ERR: Invalid FB_TOKEN", null);
+      }
+      return console.error(`ERR: Undefined FB_TOKEN`);
     }
 
     let msg = message;
@@ -298,36 +316,24 @@ class FacebookPage {
       }
     }
 
-    const sendMsg = (str) => {
-      for (let admin of this.__admins) {
-        axios
-          .post(
-            `https://graph.facebook.com/${this.version}/me/messages?access_token=${this.FB_TOKEN}`,
-            {
-              message: { text: str },
-              recipient: {
-                id: admin,
-              },
-            },
-          )
-          .then((response) => {
-            if (callback) {
-              if (typeof callback === "function") {
-                callback(false, response);
-              }
-            }
-          })
-          .catch((error) => {
-            if (callback) {
-              if (typeof callback === "function") {
-                callback(true, error);
-              }
-            }
-          });
+    const sendMsg = async (text) => {
+      for await (let admin of this.__admins) {
+        const event = {
+          sender: {
+            id: `${admin}`,
+          },
+        };
+        this.#sendMessage(text, event, callback);
       }
     };
 
     if (typeof msg !== "string") {
+      if (typeof callback === "function") {
+        return callback(
+          "ERR [Send Message]: Message must be in string format",
+          null,
+        );
+      }
       return console.error(
         `Send Message [ERR]: Message must be in string format`,
       );
@@ -363,7 +369,7 @@ class FacebookPage {
     );
   }
 
-  #regex(command, unpref) {
+  #regex(command, unpref, any) {
     // TODO: To convert normal text into regex file
     if (typeof command !== "string") {
       if (command.command) {
@@ -371,8 +377,12 @@ class FacebookPage {
       }
     }
     if (typeof command === "string") {
+      let start = "^";
+      if (any) {
+        start = "";
+      }
       if (unpref) {
-        return new RegExp(`^${command}`, "i");
+        return new RegExp(`${start}${command}`, "i");
       }
 
       let prefix = this.prefix;
@@ -381,7 +391,7 @@ class FacebookPage {
         prefix = `\\${prefix}`;
       }
 
-      return new RegExp(`^${prefix}${command}`, "i");
+      return new RegExp(`${start}${prefix}${command}`, "i");
     }
   }
 
@@ -428,7 +438,8 @@ class FacebookPage {
     const execute = () => {
       let command = commands[c];
       let unpref = command.unprefix;
-      const _regex = this.#regex(command.command, unpref);
+      let any = command.any ?? false;
+      const _regex = this.#regex(command.command, unpref, any);
       if (_regex.test(event.message.text) && !done) {
         const script = require(`./../src/${command.script}`);
         done = true;
@@ -458,8 +469,47 @@ class FacebookPage {
     }
   }
 
+  #sendMessage(text, event, callback) {
+    if (!this.FB_TOKEN) {
+      if (typeof callback === "function") {
+        return callback("ERR: Undefined FB_TOKEN", null);
+      }
+      return console.error(`Error: undefined FB TOKEN`);
+    }
+    if (typeof text !== "string") {
+      if (typeof callback === "function") {
+        return callback("ERR: Text must be string", null);
+      }
+      return console.error(`Error: text must be string`);
+    }
+    axios
+      .post(
+        `https://graph.facebook.com/${this.version}/me/messages?access_token=${this.FB_TOKEN}`,
+        {
+          message: { text: text },
+          recipient: {
+            id: event.sender.id,
+          },
+        },
+      )
+      .then((response) => {
+        if (callback) {
+          if (typeof callback === "function") {
+            callback(null, response);
+          }
+        }
+      })
+      .catch((error) => {
+        if (callback) {
+          if (typeof callback === "function") {
+            callback(error, null);
+          }
+        }
+      });
+  }
+
   // INFO: Webhook process
-  listen() {
+  listen(callback) {
     if (this.start) {
       this.start = true && this.commands.length > 0;
     }
@@ -470,6 +520,11 @@ class FacebookPage {
     }
 
     const app = this.__app;
+
+    if (typeof callback === "function") {
+      callback(app);
+    }
+
     app.get("/", (req, res) => {
       this.hostname = req.hostname;
       res.sendFile(`${__dirname}/web/index.html`);
